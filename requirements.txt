@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+vosk
+websockets
+rich
+colorama
+python-multipart
+srt
+requests
+tqdm
+pydub

@@ -1,0 +1,6 @@
+requests
+pyaudio
+sounddevice
+webrtcvad-wheels
+pynput
+numpy
