@@ -26,8 +26,8 @@ Trước khi bắt đầu, đảm bảo bạn đã cài đặt:
 
 1.  **Clone Repository (hoặc tải code):**
     ```bash
-    git clone <your-repository-url>
-    cd <your-project-directory>
+    git clone https://github.com/ShindouAris/Speak-to-text-py.git
+    cd Speak-to-text-py
     ```
 
 2.  **Tạo và Kích hoạt Virtual Environment (Khuyến nghị):**
