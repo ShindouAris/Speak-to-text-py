@@ -1,7 +1,5 @@
 {
-  "Viet": "vi",
-  "English": "en",
-  "Chinese": "zh-CN",
-  "Japansese": "ja",
-  "Russian": "ru"
+  "vi": "Vietnamese",
+  "en": "English",
+  "ja": "Japanese"
 }

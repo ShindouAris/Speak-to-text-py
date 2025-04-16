@@ -45,7 +45,7 @@ except ImportError:
 
 
 # --- Configuration ---
-LANG_CODE = "vi"
+LANG_CODE = "en"
 SERVER_URI = f"ws://localhost:8000/ws/stt/{LANG_CODE}"
 
 # --- Code Configuration, don't touch that ---
@@ -74,7 +74,7 @@ main_loop = None
 # --- Functions ---
 def process_vad(frame_bytes, loop):
     global speaking, silence_frames_count
-    is_speech = False
+
     try:
         if len(frame_bytes) == VAD_FRAME_BYTES:
             is_speech = vad.is_speech(frame_bytes, SAMPLE_RATE)
@@ -178,7 +178,7 @@ async def receive_task(websocket):
     except websockets.exceptions.ConnectionClosedOK:
         print("\n[Receive Task] Connection closed normally.")
     except websockets.exceptions.ConnectionClosedError as e:
-        print(f"\n[Receive Task] Connection closed with error: {e.code} {e.reason}")
+        print(f"\n[Receive Task] Connection closed with error: {e.rcvd.code} {e.rcvd.reason}")
     except Exception as e:
         print(f"\n[Receive Task] Error: {e}")
     finally:

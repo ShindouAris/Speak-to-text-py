@@ -1,8 +1,8 @@
 import requests
 
 # Địa chỉ API của bạn (cập nhật nếu cần)
-API_URL = "http://localhost:8000/stt/vi"  # Thay 'vn' bằng mã ngôn ngữ khác nếu cần
-AUDIO_FILE = "Demo_1.wav"  # Thay thế bằng đường dẫn file âm thanh của bạn
+API_URL = "http://localhost:8000/stt/ja"  # Thay 'vn' bằng mã ngôn ngữ khác nếu cần
+AUDIO_FILE = "videoplayback.wav"  # Thay thế bằng đường dẫn file âm thanh của bạn
 
 def send_audio_to_stt(api_url, audio_file):
     with open(audio_file, "rb") as f:

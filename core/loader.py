@@ -4,9 +4,8 @@ import os
 import sys
 import logging
 from vosk import Model
-from model_downloader import run_task
+from model_downloader import download_all_models
 
-# ---- NEW CONTEXT MANAGER ----
 class redirect_c_streams:
     """
     A context manager for temporarily redirecting C-level stdout and stderr
@@ -66,7 +65,6 @@ class redirect_c_streams:
             os.fsync(2)
         except OSError: pass
 
-        restored_ok = True
         try:
             if self._orig_stdout_fd is not None:
                 os.dup2(self._orig_stdout_fd, 1)
@@ -74,7 +72,6 @@ class redirect_c_streams:
                 os.dup2(self._orig_stderr_fd, 2)
         except OSError as e:
             logging.error(f"!!! Critical: Failed to restore original stdout/stderr: {e}", exc_info=True)
-            restored_ok = False
 
         finally:
             if self._orig_stdout_fd is not None:
@@ -102,128 +99,92 @@ class redirect_c_streams:
 
         return False
 
-# ---- END NEW CONTEXT MANAGER ----
-
-
-# --- Configuration ---
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_BASE_DIR = os.path.join(PROJECT_ROOT, "Models")
 
 
-with open(os.path.join(PROJECT_ROOT, "MODEL_MAPPER.json"), "r", encoding="utf-8") as f:
+with open(os.path.join(PROJECT_ROOT, "MODEL_LOADER.json"), "r", encoding="utf-8") as f:
     try:
         LANGUAGE_FOLDER_MAP = json.load(f)
     except json.JSONDecodeError as e:
         print(f"Error loading JSON file: {e}")
         LANGUAGE_FOLDER_MAP = {}
 
-# LANGUAGE_FOLDER_MAP = {
-#     "Viet": "vi",
-#     "English": "en",
-#     "Chinese": "zh-CN",
-#     "Japanese": "ja",
-#     "Russian": "ru",
-# }
 
 logger = logging.getLogger(__name__)
 
-def check_models_folder():
-    possible_folders = os.listdir(MODELS_BASE_DIR)
-    logger.info("Đang kiểm tra các model...")
-    if len(possible_folders) == 0:
-        logger.warning("Adu, ko có model nào hết, tải...")
-        asyncio.run(run_task())
+class ModelLoader:
+    def __init__(self):
+        self.models = {}
 
-def load_vosk_models() -> dict:
-    """
-    Quét thư mục MODELS_BASE_DIR, tải các model Vosk hợp lệ
-    và trả về một dictionary {lang_code: vosk.Model}.
-    Sử dụng redirect_c_streams để chặn output C++.
-    """
+    @staticmethod
+    def check_models_folder():
+        possible_folders = os.listdir(MODELS_BASE_DIR)
+        logger.info("Đang kiểm tra các model...")
+        if len(possible_folders) == 0:
+            logger.warning("Adu, ko có model nào hết, tải...")
+            asyncio.run(download_all_models())
+
+    def load_vosk_models(self) -> dict:
+        """
+        Quét thư mục MODELS_BASE_DIR, tải các model Vosk hợp lệ
+        và trả về một dictionary {lang_code: vosk.Model}.
+        """
+
+        os.makedirs("Models", exist_ok=True)
+
+        self.check_models_folder()
 
 
-    # Chắc chắn rằng đã có folder trước khi chạy 💀😅
-    os.makedirs("Models", exist_ok=True)
+        loaded_models = {}
+        logger.info(f"Scanning for models in: {MODELS_BASE_DIR}")
 
-    # Chạy cái check trước khi bú lồn trẻ em
-    check_models_folder()
+        if not os.path.isdir(MODELS_BASE_DIR):
+            logger.error(f"Models directory not found at: {MODELS_BASE_DIR}. Cannot load any models.")
+            return loaded_models
 
+        possible_folders = os.listdir(MODELS_BASE_DIR)
 
-    loaded_models = {}
-    logger.info(f"Scanning for models in: {MODELS_BASE_DIR}")
+        for folder_name in possible_folders:
+            model_folder_path = os.path.join(MODELS_BASE_DIR, folder_name)
 
-    if not os.path.isdir(MODELS_BASE_DIR):
-        logger.error(f"Models directory not found at: {MODELS_BASE_DIR}. Cannot load any models.")
-        return loaded_models
+            if os.path.isdir(model_folder_path) and folder_name in LANGUAGE_FOLDER_MAP:
+                lang_code = LANGUAGE_FOLDER_MAP[folder_name]
+                abs_model_path = os.path.abspath(model_folder_path)
 
-    possible_folders = os.listdir(MODELS_BASE_DIR)
+                if not os.path.exists(os.path.join(abs_model_path, 'am')):
+                    logger.warning(f"Skipping folder '{folder_name}' - does not seem to contain Vosk model structure or mapping error, please check MODEL_MAPPER.json for sure.")
+                    continue
 
-    # Không cần mở file null thủ công nữa, context manager sẽ làm
+                try:
+                    logger.debug(f"Attempting to load model for lang='{lang_code}' (folder: {folder_name}) from '{abs_model_path}'...")
 
-    for folder_name in possible_folders:
-        model_folder_path = os.path.join(MODELS_BASE_DIR, folder_name)
+                    with redirect_c_streams():
+                        model = Model(abs_model_path)
 
-        if os.path.isdir(model_folder_path) and folder_name in LANGUAGE_FOLDER_MAP:
-            lang_code = LANGUAGE_FOLDER_MAP[folder_name]
-            abs_model_path = os.path.abspath(model_folder_path)
+                    loaded_models[lang_code] = model
+                    logger.info(f"[✅] Successfully loaded model for '{lang_code}'.") # Dùng markup
 
-            if not os.path.exists(os.path.join(abs_model_path, 'am')):
-                logger.warning(f"Skipping folder '{folder_name}' - does not seem to contain Vosk model structure.")
-                continue
+                except Exception as e:
+                    logger.error(f"[❌] Failed to load Vosk model for lang='{lang_code}' from {abs_model_path}: {e}", exc_info=False) # Giảm traceback nếu muốn
 
-            try:
-                logger.info(f"Attempting to load model for lang='{lang_code}' (folder: {folder_name}) from '{abs_model_path}'...")
+            elif os.path.isdir(model_folder_path):
+                logger.warning(f"Skipping folder '{folder_name}' - not found in LANGUAGE_FOLDER_MAP.")
 
-                # ---- Sử dụng context manager mới ----
-                with redirect_c_streams():
-                    model = Model(abs_model_path)
-                # ---- Kết thúc context manager ----
+        if not loaded_models:
+            logger.warning("Warning: No Vosk models were loaded successfully!")
+        else:
+            logger.info(f"Finished loading models. Supported languages: {list(loaded_models.keys())}")
 
-                loaded_models[lang_code] = model
-                logger.info(f"[✅] Successfully loaded model for '{lang_code}'.") # Dùng markup
+        self.models = loaded_models
 
-            except Exception as e:
-                logger.error(f"[❌] Failed to load Vosk model for lang='{lang_code}' from {abs_model_path}: {e}", exc_info=False) # Giảm traceback nếu muốn
+        return self.models
 
-        elif os.path.isdir(model_folder_path):
-            logger.warning(f"Skipping folder '{folder_name}' - not found in LANGUAGE_FOLDER_MAP.")
+    def get_model(self, lang_code) -> Model | None:
+        """
+        Trả về model Vosk cho mã ngôn ngữ đã cho.
+        """
+        return self.models.get(lang_code)
 
-    if not loaded_models:
-        logger.warning("Warning: No Vosk models were loaded successfully!")
-    else:
-        logger.info(f"Finished loading models. Supported languages: {list(loaded_models.keys())}")
-
-    return loaded_models
-
-# # --- Main execution for testing ---
-# if __name__ == '__main__':
-#     # --- Cấu hình logging cơ bản CHO VIỆC TEST FILE NÀY TRỰC TIẾP ---
-#     # Nếu chạy main.py, cấu hình logging trong main.py sẽ được dùng.
-#     # Thêm RichHandler nếu muốn thấy màu khi chạy trực tiếp loader.py
-#     from rich.logging import RichHandler
-#     logging.basicConfig(
-#         level=logging.INFO,
-#         format="%(message)s",
-#         datefmt="[%X]",
-#         handlers=[RichHandler(markup=True)]
-#     )
-#     try:
-#         from vosk import SetLogLevel
-#         SetLogLevel(-1)
-#         logging.getLogger("vosk").setLevel(logging.WARNING)
-#         logger.info("Vosk log level set to -1 for direct test run.")
-#     except ImportError:
-#         logger.warning("Could not import SetLogLevel from vosk.")
-#     except Exception as e:
-#         logger.warning(f"Could not set Vosk log level: {e}")
-#
-#
-#     print(f"Project Root detected as: {PROJECT_ROOT}")
-#     print(f"Models Base Directory set to: {MODELS_BASE_DIR}")
-#     models = load_vosk_models()
-#     print("\n--- Loaded Models ---")
-#     if models:
-#         for code, model_obj in models.items():
-#             print(f"Language Code: {code}")
-#     else:
-#         print("No models loaded.")
+    def get_all(self):
+        return self.models
