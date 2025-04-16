@@ -4,3 +4,5 @@ sounddevice
 webrtcvad-wheels
 pynput
 numpy
+soundcard
+webrtcvad

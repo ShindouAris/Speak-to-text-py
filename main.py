@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -148,6 +149,7 @@ async def websocket_endpoint(
 ):
     client_host = websocket.client.host
     client_port = websocket.client.port
+    RECEIVE_TIMEOUT = 0.1
 
     if lang_code not in loaded_models:
         logger.warning(f"Unsupported language '{lang_code}' requested by {client_host}:{client_port}. Closing connection.")
@@ -158,25 +160,48 @@ async def websocket_endpoint(
     logger.info(f"✅ Connection accepted: lang='{lang_code}' from {client_host}:{client_port}")
     await websocket.accept()
 
+    logger.info(f"Initializing KaldiRecognizer for lang='{lang_code}'...")
     recognizer = KaldiRecognizer(model, SAMPLE_RATE)
     recognizer.SetWords(True)
+    logger.info(f"KaldiRecognizer initialized successfully.")
 
     try:
+        logger.info("Entering main processing loop...")
         while True:
-            data = await websocket.receive_bytes()
-            if recognizer.AcceptWaveform(data):
-                result_json = recognizer.Result()
-                result_dict = json.loads(result_json)
-                final_text = result_dict.get('text', '')
-                if final_text:
-                    logger.info(f"🔊 ({lang_code}) Final from {client_host}:{client_port}: \"{final_text}\"")
-                    await websocket.send_text(json.dumps({"text": final_text}))
-            else:
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_bytes(),
+                    timeout=RECEIVE_TIMEOUT
+                )
+                logger.debug(f"Received {len(data)} bytes.")
+                processed = recognizer.AcceptWaveform(data)
+
                 partial_result_json = recognizer.PartialResult()
                 partial_result_dict = json.loads(partial_result_json)
                 partial_text = partial_result_dict.get('partial', '')
+
                 if partial_text:
                     await websocket.send_text(json.dumps({"partial": partial_text}))
+
+                if processed:
+                    result_json = recognizer.Result()
+                    result_dict = json.loads(result_json)
+                    final_text = result_dict.get('text', '')
+                    if final_text:
+                        await websocket.send_text(json.dumps({"text": final_text}))
+                else:
+                    partial_result_json = recognizer.PartialResult()
+                    partial_result_dict = json.loads(partial_result_json)
+                    partial_text = partial_result_dict.get('partial', '')
+                    if partial_text:
+                        await websocket.send_text(json.dumps({"partial": partial_text}))
+            except asyncio.TimeoutError:
+                final_result_json = recognizer.FinalResult()
+                final_result_dict = json.loads(final_result_json)
+                final_text = final_result_dict.get('text', '')
+                if final_text:
+                    await websocket.send_text(json.dumps({"text": final_text}))
+
 
     except WebSocketDisconnect as e:
         logger.warning(f"🛑 WebSocket disconnected: lang='{lang_code}' from {client_host}:{client_port}. Code: {e.code}, Reason: {e.reason or 'N/A'}")
@@ -271,20 +296,3 @@ async def http_stt_endpoint(
     finally:
         # Recognizer sẽ tự giải phóng khi ra khỏi scope
         logger.debug(f"Cleaned up resources for HTTP STT request (file: {file.filename})")
-
-# --- Main execution ---
-if __name__ == "__main__":
-    import uvicorn
-
-    console.print(create_api_info_panel(), style="bold")
-    console.print("[bold]--- Server Logs Start Below ---[/]", style="dim")
-
-    uvicorn.run(
-        "main:app",
-        host=SERVER_HOST,
-        port=SERVER_PORT,
-        log_level="warning",
-        access_log=False,
-        ws_ping_interval=25,
-        ws_ping_timeout=20,
-    )

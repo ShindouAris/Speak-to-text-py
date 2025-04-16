@@ -1,0 +1,7 @@
+{
+  "ru": "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip",
+  "en": "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+  "vi": "https://alphacephei.com/vosk/models/vosk-model-vn-0.4.zip",
+  "ja": "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip",
+  "zh-CN": "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
+}

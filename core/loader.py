@@ -1,9 +1,10 @@
-# src/loader.py
+import asyncio
+import json
 import os
-import sys # Cần sys để flush
+import sys
 import logging
 from vosk import Model
-import contextlib # Vẫn có thể giữ lại nếu muốn thử kết hợp, nhưng không cần thiết cho giải pháp này
+from model_downloader import run_task
 
 # ---- NEW CONTEXT MANAGER ----
 class redirect_c_streams:
@@ -108,15 +109,30 @@ class redirect_c_streams:
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_BASE_DIR = os.path.join(PROJECT_ROOT, "Models")
 
-LANGUAGE_FOLDER_MAP = {
-    "Viet": "vi",
-    "English": "en",
-    "Chinese": "zh-CN",
-    "Japanese": "ja",
-    "Russian": "ru",
-}
+
+with open(os.path.join(PROJECT_ROOT, "MODEL_MAPPER.json"), "r", encoding="utf-8") as f:
+    try:
+        LANGUAGE_FOLDER_MAP = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error loading JSON file: {e}")
+        LANGUAGE_FOLDER_MAP = {}
+
+# LANGUAGE_FOLDER_MAP = {
+#     "Viet": "vi",
+#     "English": "en",
+#     "Chinese": "zh-CN",
+#     "Japanese": "ja",
+#     "Russian": "ru",
+# }
 
 logger = logging.getLogger(__name__)
+
+def check_models_folder():
+    possible_folders = os.listdir(MODELS_BASE_DIR)
+    logger.info("Đang kiểm tra các model...")
+    if len(possible_folders) == 0:
+        logger.warning("Adu, ko có model nào hết, tải...")
+        asyncio.run(run_task())
 
 def load_vosk_models() -> dict:
     """
@@ -124,6 +140,15 @@ def load_vosk_models() -> dict:
     và trả về một dictionary {lang_code: vosk.Model}.
     Sử dụng redirect_c_streams để chặn output C++.
     """
+
+
+    # Chắc chắn rằng đã có folder trước khi chạy 💀😅
+    os.makedirs("Models", exist_ok=True)
+
+    # Chạy cái check trước khi bú lồn trẻ em
+    check_models_folder()
+
+
     loaded_models = {}
     logger.info(f"Scanning for models in: {MODELS_BASE_DIR}")
 
@@ -143,7 +168,7 @@ def load_vosk_models() -> dict:
             abs_model_path = os.path.abspath(model_folder_path)
 
             if not os.path.exists(os.path.join(abs_model_path, 'am')):
-                logger.debug(f"Skipping folder '{folder_name}' - does not seem to contain Vosk model structure.")
+                logger.warning(f"Skipping folder '{folder_name}' - does not seem to contain Vosk model structure.")
                 continue
 
             try:
@@ -161,7 +186,7 @@ def load_vosk_models() -> dict:
                 logger.error(f"[❌] Failed to load Vosk model for lang='{lang_code}' from {abs_model_path}: {e}", exc_info=False) # Giảm traceback nếu muốn
 
         elif os.path.isdir(model_folder_path):
-            logger.debug(f"Skipping folder '{folder_name}' - not found in LANGUAGE_FOLDER_MAP.")
+            logger.warning(f"Skipping folder '{folder_name}' - not found in LANGUAGE_FOLDER_MAP.")
 
     if not loaded_models:
         logger.warning("Warning: No Vosk models were loaded successfully!")
@@ -170,35 +195,35 @@ def load_vosk_models() -> dict:
 
     return loaded_models
 
-# --- Main execution for testing ---
-if __name__ == '__main__':
-    # --- Cấu hình logging cơ bản CHO VIỆC TEST FILE NÀY TRỰC TIẾP ---
-    # Nếu chạy main.py, cấu hình logging trong main.py sẽ được dùng.
-    # Thêm RichHandler nếu muốn thấy màu khi chạy trực tiếp loader.py
-    from rich.logging import RichHandler
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler(markup=True)]
-    )
-    try:
-        from vosk import SetLogLevel
-        SetLogLevel(-1)
-        logging.getLogger("vosk").setLevel(logging.WARNING)
-        logger.info("Vosk log level set to -1 for direct test run.")
-    except ImportError:
-        logger.warning("Could not import SetLogLevel from vosk.")
-    except Exception as e:
-        logger.warning(f"Could not set Vosk log level: {e}")
-
-
-    print(f"Project Root detected as: {PROJECT_ROOT}")
-    print(f"Models Base Directory set to: {MODELS_BASE_DIR}")
-    models = load_vosk_models()
-    print("\n--- Loaded Models ---")
-    if models:
-        for code, model_obj in models.items():
-            print(f"Language Code: {code}")
-    else:
-        print("No models loaded.")
+# # --- Main execution for testing ---
+# if __name__ == '__main__':
+#     # --- Cấu hình logging cơ bản CHO VIỆC TEST FILE NÀY TRỰC TIẾP ---
+#     # Nếu chạy main.py, cấu hình logging trong main.py sẽ được dùng.
+#     # Thêm RichHandler nếu muốn thấy màu khi chạy trực tiếp loader.py
+#     from rich.logging import RichHandler
+#     logging.basicConfig(
+#         level=logging.INFO,
+#         format="%(message)s",
+#         datefmt="[%X]",
+#         handlers=[RichHandler(markup=True)]
+#     )
+#     try:
+#         from vosk import SetLogLevel
+#         SetLogLevel(-1)
+#         logging.getLogger("vosk").setLevel(logging.WARNING)
+#         logger.info("Vosk log level set to -1 for direct test run.")
+#     except ImportError:
+#         logger.warning("Could not import SetLogLevel from vosk.")
+#     except Exception as e:
+#         logger.warning(f"Could not set Vosk log level: {e}")
+#
+#
+#     print(f"Project Root detected as: {PROJECT_ROOT}")
+#     print(f"Models Base Directory set to: {MODELS_BASE_DIR}")
+#     models = load_vosk_models()
+#     print("\n--- Loaded Models ---")
+#     if models:
+#         for code, model_obj in models.items():
+#             print(f"Language Code: {code}")
+#     else:
+#         print("No models loaded.")
